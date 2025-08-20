@@ -6,12 +6,11 @@ import queue
 import subprocess
 import sys
 import time
+import platform
 import cv2
 import mss
 import numpy as np
 import pyautogui
-import win32api
-import win32con
 from math import sqrt
 from ultralytics import YOLO
 from PyQt6 import QtWidgets, uic
@@ -23,12 +22,34 @@ from customLib.animated_status import AnimatedStatus  # 导入 带动画的状�
 from customLib.automatic_trigger_set_dialog import AutomaticTriggerSetDialog  # 导入自定义设置窗口类
 from Module.const import method_mode
 from Module.config import Config, Root
-from Module.control import kmNet
 from Module.logger import logger
 import Module.control as control
 import Module.keyboard as keyboard
 import Module.jump_detection as jump_detection
 import Module.announcement
+
+# Platform-specific imports
+CURRENT_PLATFORM = platform.system().lower()
+
+# Windows-specific imports (only load on Windows)
+if CURRENT_PLATFORM == "windows":
+    try:
+        import win32api
+        import win32con
+    except ImportError:
+        logger.warning("Windows-specific modules not available")
+        win32api = None
+        win32con = None
+
+# macOS-specific imports
+elif CURRENT_PLATFORM == "darwin":
+    try:
+        import Quartz
+        from Quartz import CGDisplayCreateImage, CGImageGetWidth, CGImageGetHeight
+        logger.info("macOS Quartz framework loaded for screen capture")
+    except ImportError:
+        logger.warning("macOS Quartz framework not available")
+        Quartz = None
 
 # 初始化配置文件
 Config.save()
@@ -151,11 +172,11 @@ def start_capture_process_single(videoSignal_queue, videoSignal_stop_queue, info
         try:
             # 检查模型文件是否存在
             if not os.path.exists(model_file):
-                logger.warn(f"模型文件 '{model_file}' 未找到，尝试使用默认模型 'yolov8n.pt'。")
+                logger.warn(f"模型文件 '{model_file}' 未找到，尝试使用默认模型 'yolo11n.pt'。")
                 information_output_queue.put(
-                    ("log_output_main", f"模型文件 '{model_file}' 未找到，使用默认模型 yolov8n.pt'。"))
-                model_file = "yolov8n.pt"
-                log_message = f"[ERROR]一般错误，模型文件 '{model_file}' 未找到，使用默认模型 'yolov8n.pt'。"
+                    ("log_output_main", f"模型文件 '{model_file}' 未找到，使用默认模型 yolo11n.pt'。"))
+                model_file = "yolo11n.pt"
+                log_message = f"[ERROR]一般错误，模型文件 '{model_file}' 未找到，使用默认模型 'yolo11n.pt'。"
                 # 选定文件未能找到，黄色报错
                 pipe_parent.send(("loading_error", log_message))
                 if not os.path.exists(model_file):
@@ -321,7 +342,8 @@ def screen_capture_and_yolo_processing(processedVideo_queue, videoSignal_stop_qu
         except Exception:
             break
 
-    with mss.mss(backend='directx') as sct:
+    # Use cross-platform screen capture (remove DirectX backend for macOS compatibility)
+    with mss.mss() as sct:
         # 获取屏幕分辨率
         screen_width, screen_height = pyautogui.size()
         logger.info("屏幕分辨率:", screen_width, screen_height)
@@ -433,12 +455,12 @@ def video_processing(shm_name, frame_shape, frame_dtype, frame_available_event,
         # 初始化 YOLO
         # 检查模型文件是否存在，如果不存在则使用默认模型
         if not os.path.exists(model_file):
-            logger.warn(f"模型文件 '{model_file}' 未找到，尝试使用默认模型 'yolov8n.pt'")
+            logger.warn(f"模型文件 '{model_file}' 未找到，尝试使用默认模型 'yolo11n.pt'")
             information_output_queue.put(
-                ("log_output_main", f"模型文件 '{model_file}' 未找到，使用默认模型 'yolov8n.pt'。"))
-            log_message = f"[ERROR]一般错误，模型文件 '{model_file}' 未找到，使用默认模型 'yolov8n.pt'。"
+                ("log_output_main", f"模型文件 '{model_file}' 未找到，使用默认模型 'yolo11n.pt'。"))
+            log_message = f"[ERROR]一般错误，模型文件 '{model_file}' 未找到，使用默认模型 'yolo11n.pt'。"
             pipe_parent.send(("loading_error", log_message))  # 选定文件未能找到，黄色报错
-            model_file = "yolov8n.pt"
+            model_file = "yolo11n.pt"
             if not os.path.exists(model_file):
                 logger.fatal(f"致命错误，默认模型文件 '{model_file}' 也未找到。请确保模型文件存在。")
                 log_message = f"[ERROR]致命错误，默认模型文件 '{model_file}' 也未找到。请确保模型文件存在。"
@@ -538,7 +560,6 @@ def YOLO_process_frame(
         results = model.predict(
             frame,
             save=False,
-            device="cuda:0",
             verbose=False,
             save_txt=False,
             half=True,
@@ -726,6 +747,7 @@ def mouse_move_prosses(box_shm_name, box_lock, mouseMoveProssesSignal_queue, acc
     try:
         while True:
             '''信号检查部分'''
+            logger.info("mouse move process running...")
             if not mouseMoveProssesSignal_queue.empty():
                 command_data = mouseMoveProssesSignal_queue.get()
                 logger.debug(f"mouseMoveProssesSignal_queue 队列收到信号: {command_data}")
@@ -882,10 +904,16 @@ def mouse_move_prosses(box_shm_name, box_lock, mouseMoveProssesSignal_queue, acc
                     if isinstance(lockKey, str) and lockKey.startswith("0x"):
                         lockKey = int(lockKey, 16)  # 转换为十六进制整数
 
-                    # 检查锁定键、鼠标侧键和 Shift 键是否按下
-                    lockKey_pressed = bool(win32api.GetKeyState(lockKey) & 0x8000)
-                    xbutton2_pressed = bool(win32api.GetKeyState(0x05) & 0x8000)  # 鼠标侧键
-                    shift_pressed = bool(win32api.GetKeyState(win32con.VK_SHIFT) & 0x8000)  # Shift 键
+                    # 检查锁定键、鼠标侧键和 Shift 键是否按下 (cross-platform)
+                    if CURRENT_PLATFORM == "windows" and win32api:
+                        lockKey_pressed = bool(win32api.GetKeyState(lockKey) & 0x8000)
+                        xbutton2_pressed = bool(win32api.GetKeyState(0x05) & 0x8000)  # 鼠标侧键
+                        shift_pressed = bool(win32api.GetKeyState(win32con.VK_SHIFT) & 0x8000)  # Shift 键
+                    else:
+                        # Use cross-platform key detection
+                        lockKey_pressed = control._get_key_state_cross_platform(lockKey)
+                        xbutton2_pressed = control._get_key_state_cross_platform(0x05)  # 鼠标侧键
+                        shift_pressed = control._get_key_state_cross_platform(0x10)  # Shift 键 (VK_SHIFT)
 
                     if trigger_mode == 'press':
                         # 按下模式：只需检测按键是否被按下
@@ -1887,7 +1915,7 @@ class RookieAiAPP:  # 主进程 (UI进程)
             "window_always_on_top", False)
         logger.debug("窗口置顶状态:", self.window_always_on_top)
         # 获取 "model_file" 模型文件的路径
-        self.model_file = Config.get("model_file", "yolov8n.pt")
+        self.model_file = Config.get("model_file", "yolo11n.pt")
         logger.debug(f"读取模型文件路径: {self.model_file}")
         # 获取 YOLO 置信度设置
         yolo_confidence = Config.get('confidence', 0.5)  # 默认值为0.5
@@ -2506,7 +2534,7 @@ class RookieAiAPP:  # 主进程 (UI进程)
             self.window,  # 父窗口
             "选择模型文件",  # 对话框标题
             "",  # 默认打开的路径
-            "模型文件 (*.pt *.engine *.onnx);;所有文件 (*.*)"  # 文件过滤器
+            "模型文件 (*.pt *.engine *.onnx *.mlpackage);;所有文件 (*.*)"  # 文件过滤器
         )
         if model_file:  # 如果用户选择了文件
             self.file_name = os.path.basename(model_file)  # 只提取文件名和后缀
@@ -2737,9 +2765,11 @@ class RookieAiAPP:  # 主进程 (UI进程)
                 ("UI_process_log", "process_videoprocessing 进程创建完毕"))
 
         # 4.鼠标移动进程
+        logger.info("mouse move provess started")
         process_mouse_move = Process(target=mouse_move_prosses,
                                      args=(box_shm.name, box_lock, self.mouseMoveProssesSignal_queue,
                                            self.accessibilityProcessSignal_queue))
+        logger.info("mouse move provess initiated")
         self._extracted_from_main_65(process_mouse_move, "process_mouse_move 进程创建完毕")
 
         # 5.辅助功能进程

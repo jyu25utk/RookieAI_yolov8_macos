@@ -15,7 +15,7 @@ class Config:
         "confidence": 0.3,
         "aim_speed_x": 6.7,
         "aim_speed_y": 8.3,
-        "model_file": "yolov8n.pt",
+        "model_file": "yolo11n.pt",
         "mouse_Side_Button_Witch": True,
         "ProcessMode": "single_process",
         "window_always_on_top": False,

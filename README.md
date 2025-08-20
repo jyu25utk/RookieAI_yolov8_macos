@@ -1,4 +1,4 @@
-# RookieAI_yolov8_V3
+# RookieAI_yolov11_V3
 
 > [!IMPORTANT]
 > 使用前请先阅读[参数解释文档](Parameter_explanation.md)
@@ -40,9 +40,9 @@ poetry run pip install torch torchvision torchaudio -f https://download.pytorch.
 
 2. 你还需要一个自己的模型（目前支持.pt/.engine/.onnx模型），如果没有可暂时使用ultralytics官方模型
 
-3. **当未找到模型时会自动下载YOLOv8n模型**，你也可以⬇️
+3. **当未找到模型时会自动下载YOLOv11n模型**，你也可以⬇️
 
-访问[YOLOv8GitHub界面](https://docs.ultralytics.com/)获取更多官方yolov8模型以快速开始
+访问[YOLOv11GitHub界面](https://docs.ultralytics.com/)获取更多官方yolov11模型以快速开始
 
 访问[ultralytics官网](https://docs.ultralytics.com/)查看官方网站帮助文档
 

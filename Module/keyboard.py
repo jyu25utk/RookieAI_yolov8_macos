@@ -1,7 +1,36 @@
 import tkinter as tk
 import threading
 import queue
-from pynput import keyboard, mouse
+import platform
+from Module.logger import logger
+
+# Cross-platform imports with error handling
+try:
+    from pynput import keyboard
+    pynput_keyboard_available = True
+except ImportError:
+    keyboard = None
+    pynput_keyboard_available = False
+    logger.warning("pynput keyboard not available")
+
+try:
+    from pynput import mouse as pynput_mouse
+    pynput_mouse_available = True
+except ImportError:
+    pynput_mouse = None
+    pynput_mouse_available = False
+    logger.warning("pynput mouse not available")
+
+# Platform-specific mouse library import
+try:
+    import mouse
+    mouse_available = True
+except (ImportError, OSError) as e:
+    mouse = None
+    mouse_available = False
+    logger.warning(f"Mouse library not available: {e}")
+
+CURRENT_PLATFORM = platform.system().lower()
 
 
 class KeyCaptureApp:
@@ -21,12 +50,27 @@ class KeyCaptureApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def start_listening(self):
-        self.listener = keyboard.Listener(on_press=self.on_press)
-        self.listener.start()
-        self.mouse_listener = mouse.Listener(on_click=self.on_mouse_click)
-        self.mouse_listener.start()
+        if pynput_keyboard_available:
+            self.listener = keyboard.Listener(on_press=self.on_press)
+            self.listener.start()
+        else:
+            logger.warning("pynput keyboard not available for key capture")
+            
+        if mouse_available:
+            self.mouse_listener = mouse.Listener(on_click=self.on_mouse_click)
+            self.mouse_listener.start()
+        elif pynput_mouse_available:
+            logger.info("pynput mouse listener keyboard module started!!!")
+            self.mouse_listener = pynput_mouse.Listener(on_click=self.on_mouse_click_pynput)
+            self.mouse_listener.start()
+        else:
+            logger.warning("No mouse library available for mouse capture")
+            self.mouse_listener = None
 
     def on_press(self, key):
+        if not pynput_keyboard_available:
+            return
+            
         if key == keyboard.Key.esc:
             self.on_close()
         if isinstance(key, keyboard.KeyCode):
@@ -37,6 +81,9 @@ class KeyCaptureApp:
         self.on_close()
 
     def on_mouse_click(self, x, y, button, pressed):
+        if not pressed:  # Only handle press events
+            return
+            
         mouse_vk_map = {
             mouse.Button.left: 0x01,   # VK_LBUTTON
             mouse.Button.right: 0x02,  # VK_RBUTTON
@@ -45,6 +92,22 @@ class KeyCaptureApp:
             mouse.Button.x2: 0x06      # VK_XBUTTON2
         }
         if vk_code := mouse_vk_map.get(button):
+            self.event_result = hex(vk_code)
+        else:
+            self.event_result = 'UNKNOWN'
+        self.on_close()
+
+    def on_mouse_click_pynput(self, x, y, button, pressed):
+        logger.ingo("mouse clicked, pynput")
+        if not pressed:  # Only handle press events
+            return
+            
+        pynput_mouse_vk_map = {
+            pynput_mouse.Button.left: 0x01,   # VK_LBUTTON
+            pynput_mouse.Button.right: 0x02,  # VK_RBUTTON
+            pynput_mouse.Button.middle: 0x04,  # VK_MBUTTON
+        }
+        if vk_code := pynput_mouse_vk_map.get(button):
             self.event_result = hex(vk_code)
         else:
             self.event_result = 'UNKNOWN'
