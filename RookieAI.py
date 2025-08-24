@@ -261,6 +261,8 @@ def _extracted_from_open_screen_video_11(videoSignal_stop_queue, sct, shared_fra
     capture_width, capture_height = 320, 320
     left = (screen_width - capture_width) // 2
     top = (screen_height - capture_height) // 2
+
+    # Retina scaling need to // 2
     capture_area = {
         "top": top,
         "left": left,
@@ -271,7 +273,7 @@ def _extracted_from_open_screen_video_11(videoSignal_stop_queue, sct, shared_fra
     # 初始化 'frame' 以避免引用前未赋值
     frame = np.zeros((capture_height, capture_width, 3), dtype=np.uint8)
 
-    frame_interval = 0.05
+    frame_interval = 0.0
 
     while True:
         frame_start_time = time.time()  # 记录帧开始时间
@@ -298,18 +300,18 @@ def _extracted_from_open_screen_video_11(videoSignal_stop_queue, sct, shared_fra
         np.copyto(shared_frame, frame)
         frame_available_event.set()
 
-        # 计算已用时间
-        frame_end_time = time.time()
-        elapsed_time = frame_end_time - frame_start_time
+        # # 计算已用时间
+        # frame_end_time = time.time()
+        # elapsed_time = frame_end_time - frame_start_time
 
-        # 计算剩余时间
-        remaining_time = frame_interval - elapsed_time
-        if remaining_time > 0:
-            time.sleep(remaining_time)
-        else:
-            # 如果处理时间超过了帧间隔，可能需要记录或优化
-            logger.warn(
-                f"视频帧处理时间 {elapsed_time:.4f} 秒超过目标间隔 {frame_interval:.4f} 秒")
+        # # 计算剩余时间
+        # remaining_time = frame_interval - elapsed_time
+        # if remaining_time > 0:
+        #     time.sleep(remaining_time)
+        # else:
+        #     # 如果处理时间超过了帧间隔，可能需要记录或优化
+        #     logger.warn(
+        #         f"视频帧处理时间 {elapsed_time:.4f} 秒超过目标间隔 {frame_interval:.4f} 秒")
 
 
 def screen_capture_and_yolo_processing(processedVideo_queue, videoSignal_stop_queue, YoloSignal_queue, pipe_parent,
@@ -512,7 +514,7 @@ def video_processing(shm_name, frame_shape, frame_dtype, frame_available_event,
             if yolo_enabled and model is not None:
                 # 执行 YOLO 推理并写入共享内存
                 processed_frame = YOLO_process_frame(
-                    model, frame, yolo_confidence,
+                    model, frame, accessibilityProcessSignal_queue, yolo_confidence,
                     target_class=target_class,  # 使用更新后的目标类别
                     box_shm_name=box_shm_name,
                     box_data_event=box_data_event,
@@ -704,17 +706,17 @@ def mouse_move_prosses(box_shm_name, box_lock, mouseMoveProssesSignal_queue, acc
     MAC = "84FF7019"
     connectKmBox = False
 
-    logger.debug("测试KmBoxNet连通性...")
-    response = subprocess.run(
-        ["ping", IP], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output = response.stdout.decode('gbk', errors='ignore')
-    logger.debug(output)
+    # logger.debug("测试KmBoxNet连通性...")
+    # response = subprocess.run(
+    #     ["ping", IP], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # output = response.stdout.decode('gbk', errors='ignore')
+    # logger.debug(output)
 
-    # 根据 returncode 判断是否连通
-    if response.returncode == 0:
-        logger.info("KmBoxNet IP连通成功")
-    else:
-        logger.error("KmBoxNet IP连通测试失败")
+    # # 根据 returncode 判断是否连通
+    # if response.returncode == 0:
+    #     logger.info("KmBoxNet IP连通成功")
+    # else:
+    #     logger.error("KmBoxNet IP连通测试失败")
 
     # 连接到 Box 共享内存
     box_shm = shared_memory.SharedMemory(name=box_shm_name)
@@ -747,7 +749,6 @@ def mouse_move_prosses(box_shm_name, box_lock, mouseMoveProssesSignal_queue, acc
     try:
         while True:
             '''信号检查部分'''
-            logger.info("mouse move process running...")
             if not mouseMoveProssesSignal_queue.empty():
                 command_data = mouseMoveProssesSignal_queue.get()
                 logger.debug(f"mouseMoveProssesSignal_queue 队列收到信号: {command_data}")
@@ -2662,7 +2663,7 @@ class RookieAiAPP:  # 主进程 (UI进程)
         # 创建总管道，总信号传输，
         parent_conn, child_conn = Pipe()  # 总传输管道
         VideoSignal_queue = Queue()  # 视频状态信号队列
-        videoSignal_stop_queue = Queue()  # 视频状态信号队列（停止）
+        videoSignal_stop_queue = Queue(maxsize=2)  # 视频状态信号队列（停止）
         video_queue = Queue(maxsize=1)  # 源视频画面传输队列
         processedVideo_queue = Queue(maxsize=1)  # 处理后的视频画面传输队列
         YoloSignal_queue = Queue()  # YOLO控制管道
@@ -2698,7 +2699,7 @@ class RookieAiAPP:  # 主进程 (UI进程)
         box_array.fill(0)  # 初始化为0
 
         '''创建共享内存，用于 video_queue'''
-        frame_shape = (320, 320, 3)  # 根据您的实际帧尺寸
+        frame_shape = (640, 640, 3)  # 根据您的实际帧尺寸
         frame_dtype = np.uint8  # 假设帧的数据类型为 uint8
         frame_size = int(np.prod(frame_shape) * np.dtype(frame_dtype).itemsize)
         shm_video = shared_memory.SharedMemory(create=True, size=frame_size)
@@ -2754,11 +2755,11 @@ class RookieAiAPP:  # 主进程 (UI进程)
         if self.ProcessMode == "multi_process":
             process_videoprocessing = Process(target=video_processing,
                                               args=(shm_video_name, frame_shape, frame_dtype,
-                                                    frame_available_event, processedVideo_queue,
-                                                    YoloSignal_queue, parent_conn,
-                                                    information_output_queue, self.model_file,
+                                                    frame_available_event, self.processedVideo_queue,
+                                                    self.YoloSignal_queue, parent_conn,
+                                                    self.information_output_queue, self.model_file,
                                                     box_shm.name, box_data_event, box_lock,
-                                                    accessibilityProcessSignal_queue))
+                                                    self.accessibilityProcessSignal_queue))
             process_videoprocessing.daemon = True
             process_videoprocessing.start()
             information_output_queue.put(
